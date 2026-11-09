@@ -198,10 +198,15 @@ var Engine = (function () {
   }
   function proteinTarget(s) { return Math.round(1.8 * (s.profile.weightKg || 70)); }
   function mealStats(s, date) {
-    var rec = s.meals[date] || { done: {}, extra: {} }, p = 0, ferm = false, plants = {};
-    SLOTS.forEach(function (sl) { if (rec.done[sl]) { var m = pickMeal(s, date, sl); p += m.p; ferm = ferm || !!m.f; m.pl.forEach(function (x) { plants[x] = 1; }); } });
+    var rec = s.meals[date] || { done: {}, extra: {} }, p = 0, ferm = false, plants = {}, tot = { kcal: 0, c: 0, fat: 0, fib: 0, fe: 0, ca: 0 };
+    SLOTS.forEach(function (sl) {
+      if (rec.done[sl]) {
+        var m = pickMeal(s, date, sl); p += m.p; ferm = ferm || !!m.f; m.pl.forEach(function (x) { plants[x] = 1; });
+        Object.keys(tot).forEach(function (k) { tot[k] += m.nut[k]; });
+      }
+    });
     Object.keys(rec.extra || {}).forEach(function (i) { if (rec.extra[i]) p += D.BOOSTERS[i].p; });
-    return { protein: p, ferm: ferm, plants: plants };
+    return { protein: p, ferm: ferm, plants: plants, nut: tot };
   }
   function plantsThisWeek(s, today) {
     var ws = weekStart(today), all = {};

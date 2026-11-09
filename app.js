@@ -156,6 +156,27 @@
     return h;
   }
 
+
+  /* ---- meal nutrition helpers ---- */
+  function macroRow(m) {
+    var n = m.nut, kc = n.kcal || 1, pc = Math.round(n.p * 4 / kc * 100), cc = Math.round(n.c * 4 / kc * 100), fc = Math.max(0, 100 - pc - cc);
+    return '<div class="macros"><div><b>' + n.kcal + '</b><span>kcal</span></div><div><b>' + n.p + 'g</b><span>protein</span></div><div><b>' + n.c + 'g</b><span>carbs</span></div><div><b>' + n.fat + 'g</b><span>fat</span></div><div><b>' + n.fib + 'g</b><span>fibre</span></div></div>' +
+      '<div class="msplit" title="share of calories"><i style="width:' + pc + '%;background:#3ddc97"></i><i style="width:' + cc + '%;background:#ffd166"></i><i style="width:' + fc + '%;background:#ff9f5a"></i></div><div class="xs mut" style="margin-top:3px">Calories from <span style="color:#3ddc97">protein ' + pc + '%</span> · <span style="color:#ffd166">carbs ' + cc + '%</span> · <span style="color:#ff9f5a">fat ' + fc + '%</span></div>';
+  }
+  function recipeHtml(m) {
+    return '<details class="how"><summary>🍳 Recipe &amp; exact portions</summary><table class="ingt">' + m.ing.map(function (x) { return '<tr><td>' + esc(x.n) + (x.hh ? '<div class="xs mut">' + esc(x.hh) + '</div>' : '') + '</td><td>' + x.g + ' g</td></tr>'; }).join('') + '</table>' +
+      '<ol class="steps">' + m.steps.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' +
+      '<div class="xs mut">Weights are raw/dry (before cooking) for one serving. Also: iron ' + m.nut.fe + ' mg · calcium ' + m.nut.ca + ' mg. ' + esc(D.SPICE_NOTE) + '</div></details>';
+  }
+  function nutCard(ms, t) {
+    var n = ms.nut, p = S.profile, ironT = p.sex === 'f' ? 29 : 19, kt = E.calorieTarget(S), pt = E.proteinTarget(S);
+    function row(l, v, tgt, u, col) { return '<div class="nrow"><span>' + l + '</span><div class="bar"><i style="width:' + Math.min(100, Math.round(v / tgt * 100)) + '%;background:' + col + '"></i></div><b>' + Math.round(v) + (tgt ? ' / ' + tgt : '') + ' ' + u + '</b></div>'; }
+    return '<div class="card"><h3>Today\'s nutrients</h3><div class="xs mut" style="margin-bottom:6px">From the meals you ticked as eaten.</div>' +
+      row('Energy', n.kcal, kt || 2000, 'kcal', '#2bb6c9') + row('Protein', ms.protein, pt, 'g', '#3ddc97') + row('Fibre', n.fib, 30, 'g', '#8be28f') +
+      row('Calcium', n.ca, 1000, 'mg', '#ffd166') + row('Iron', n.fe, ironT, 'mg', '#ff7a7a') +
+      '<div class="xs mut" style="margin-top:6px">Carbs ' + Math.round(n.c) + ' g · Fat ' + Math.round(n.fat) + ' g. Iron from plants absorbs less well: pair it with lemon or other vitamin C foods. Targets are general adult guides (protein 1.8 g/kg for fat loss, fibre 30 g, calcium 1000 mg, iron per ICMR-NIN).</div></div>';
+  }
+
   /* ================= MEALS ================= */
   function viewMeals() {
     var t = today(), rec = E.dayRec(S, t), ms = E.mealStats(S, t), pt = E.proteinTarget(S), pl = E.plantsThisWeek(S, t), kt = E.calorieTarget(S), ke = E.kcalEaten(S, t);
@@ -164,10 +185,11 @@
       (kt ? '<div class="row sp"><b>Energy</b><span>~' + ke + ' / ~' + kt + ' kcal</span></div><div class="bar" style="margin:8px 0"><i style="width:' + Math.min(100, Math.round(ke / kt * 100)) + '%"></i></div>' : '<div class="xs mut">Add height and age in Settings to see a calorie target.</div>') +
       '<div class="row sp sm"><span>🌿 Plant variety this week</span><b>' + pl + ' / 30</b></div><div class="bar" style="margin:6px 0"><i style="width:' + Math.min(100, Math.round(pl / 30 * 100)) + '%"></i></div>' +
       '<div class="xs mut">"Detox" is really your gut, liver and kidneys doing their job. Help them with fibre, plenty of plants, curd or buttermilk daily, water, little sugar and ultra-processed food, and good sleep. No juice cleanses needed.</div></div>';
+    h += nutCard(ms, t);
     E.SLOTS.forEach(function (sl) {
       var m = E.pickMeal(S, t, sl), on = rec.done[sl];
       h += '<div class="card"><div class="row sp"><span class="pill">' + cap(sl) + '</span><span class="xs mut">~' + m.p + ' g protein · ' + m.k + ' kcal' + (m.f ? ' · fermented' : '') + '</span></div>' +
-        '<div style="margin:8px 0;font-weight:600">' + esc(m.n) + '</div><div class="xs mut">' + m.pl.map(esc).join(' · ') + '</div>' +
+        '<div style="margin:8px 0;font-weight:600">' + esc(m.n) + '</div>' + macroRow(m) + recipeHtml(m) + '<div class="xs mut" style="margin-top:6px">🌿 ' + m.pl.map(esc).join(' · ') + '</div>' +
         '<div class="row" style="margin-top:10px"><button class="btn sm ' + (on ? 'pri' : '') + '" data-act="eat" data-v="' + sl + '">' + (on ? '✓ Eaten' : 'Mark eaten') + '</button><button class="btn sm ghost" data-act="swap" data-v="' + sl + '">↻ Swap</button></div></div>';
     });
     if (ms.protein < pt) h += '<div class="card"><b>Short on protein? Add:</b><div class="row wrap" style="margin-top:8px">' + D.BOOSTERS.map(function (b, i) { return chip(rec.extra[i], 'boost', 'data-v="' + i + '"', b.n + ' +' + b.p + 'g'); }).join('') + '</div></div>';
