@@ -3,7 +3,31 @@
   var KEY = 'calis.v1', E = Engine, D = DATA;
   var S = load(), view = 'today', W = null, OB = { days: 3, sex: 'm', hasBar: false }, CI = null, CP = null, restNote = '';
   var $app = document.getElementById('app'), $ov = document.getElementById('overlay'), $rest = document.getElementById('rest');
-  var timer = null, sw = null, tick = null;
+  var timer = null, sw = null, tick = null, deferredInstall = null;
+  D.ORDER.forEach(function (t) { D.TRACKS[t].levels.forEach(function (l, i) { l.steps = (STEPS[t] || [])[i] || []; }); });
+  var TCOL = { hs: '#b388ff', push: '#ff7a7a', dips: '#ff9f5a', pl: '#ff5fa2', pull: '#4cc9f0', fl: '#6c8cff', legs: '#3ddc97', post: '#8be28f', calves: '#c3e66a', core: '#ffd166', obl: '#ffb454', flex: '#d58cff' };
+  var TICO = { hs: '🤸', push: '💪', dips: '🏋️', pl: '🛸', pull: '🧗', fl: '🦅', legs: '🦵', post: '🍑', calves: '🦶', core: '🔥', obl: '🌀', flex: '🧘' };
+  function exByKey(t, i) { return D.TRACKS[t].levels[i]; }
+  function howTo(t, lv, open) {
+    var ex = exByKey(t, lv);
+    return '<details class="how"' + (open ? ' open' : '') + '><summary>📖 How to do it, step by step</summary><div class="fig" data-fig="' + t + '|' + lv + '|' + TCOL[t] + '"></div><ol class="steps">' + ex.steps.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol></details>';
+  }
+  function ring(done, goal) {
+    var c = 2 * Math.PI * 26, p = Math.min(1, done / goal);
+    return '<svg class="ring" viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" class="rbg"/><circle cx="32" cy="32" r="26" class="rfg" stroke-dasharray="' + (c * p).toFixed(1) + ' ' + c.toFixed(1) + '" transform="rotate(-90 32 32)"/><text x="32" y="37" text-anchor="middle" class="rtx">' + done + '/' + goal + '</text></svg>';
+  }
+  function streakWeeks(t) {
+    var ws = E.weekStart(t), n = 0;
+    for (var i = 1; i <= 52; i++) { var w = E.addDays(ws, -7 * i), c = S.sessions.filter(function (x) { return E.weekStart(x.date) === w; }).length; if (c >= Math.max(1, S.profile.days - 1)) n++; else break; }
+    return n + (E.sessionsInWeek(S, t) >= S.profile.days ? 1 : 0);
+  }
+  function confetti() {
+    var c = document.createElement('canvas'); c.className = 'confetti'; c.width = innerWidth; c.height = innerHeight; document.body.appendChild(c);
+    var x = c.getContext('2d'), cols = ['#3ddc97', '#2bb6c9', '#ffd166', '#ff7a7a', '#b388ff'], ps = [], t0 = Date.now();
+    for (var i = 0; i < 120; i++) ps.push({ x: Math.random() * c.width, y: -20 - Math.random() * c.height * 0.4, vx: Math.random() * 2 - 1, vy: 2 + Math.random() * 4, r: 3 + Math.random() * 4, c: cols[i % 5], a: Math.random() * 6 });
+    (function f() { x.clearRect(0, 0, c.width, c.height); ps.forEach(function (p) { p.x += p.vx; p.y += p.vy; p.a += 0.15; x.fillStyle = p.c; x.save(); x.translate(p.x, p.y); x.rotate(p.a); x.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); x.restore(); }); if (Date.now() - t0 < 2600) requestAnimationFrame(f); else c.remove(); })();
+  }
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferredInstall = e; if (S && view === 'settings') render(); });
   if (S && (S.v < 3 || D.ORDER.some(function (t) { return !S.tracks[t]; }))) { E.migrate(S); save(); }
 
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
@@ -48,8 +72,8 @@
   function viewToday() {
     var t = today(), st = E.status(S, t), wk = E.weekNumber(S, t), dl = E.isDeload(S, t), done = E.sessionsInWeek(S, t);
     var dots = ''; for (var i = 0; i < S.profile.days; i++) dots += '<i class="' + (i < done ? 'on' : '') + '"></i>';
-    var h = '<div class="row sp"><div><div class="mut sm">' + new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) + '</div><h1>Hi' + (S.profile.name ? ', ' + esc(S.profile.name) : '') + '</h1></div><div class="dots">' + dots + '</div></div>' +
-      '<div class="row wrap" style="margin-bottom:4px"><span class="pill g">Week ' + wk + '</span>' + (dl ? '<span class="pill w">Deload week</span>' : '') + '<span class="pill">' + done + '/' + S.profile.days + ' sessions</span></div>';
+    var h = '<div class="row sp"><div><div class="mut sm">' + new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) + '</div><h1>Hi' + (S.profile.name ? ', ' + esc(S.profile.name) : '') + '</h1></div>' + ring(done, S.profile.days) + '</div>' +
+      '<div class="row wrap" style="margin-bottom:4px"><span class="pill g">Week ' + wk + '</span>' + (dl ? '<span class="pill w">Deload week</span>' : '') + '<span class="pill">' + done + '/' + S.profile.days + ' sessions</span>' + (streakWeeks(t) > 0 ? '<span class="pill w">🔥 ' + streakWeeks(t) + ' wk streak</span>' : '') + '</div>';
 
     if (E.checkpointDue(S, t)) h += '<div class="card warn"><b>📋 Checkpoint due</b><div class="sm mut">A 2-minute review of weight, waist, strength and how you feel. It tells you whether everything is on track.</div><button class="btn blk" data-act="cpopen">Do checkpoint</button></div>';
 
@@ -97,7 +121,7 @@
   function label(it) { return it.sets + ' × ' + it.target + (it.ex.t === 'hold' ? ' s' : '') + (it.ex.side ? ' / side' : ''); }
   function planCard(p) {
     var h = '<div class="card hl"><div class="row sp"><h3>Today: ' + esc(p.name || 'Workout ' + p.type) + '</h3><span class="pill">~' + (10 + p.items.length * 6) + ' min</span></div>';
-    h += '<ul class="clean">' + p.items.map(function (it) { return '<li><div class="row sp"><span><span class="xs mut">' + D.TRACKS[it.track].label + '</span><br><b>' + esc(it.ex.n) + '</b></span><span class="mut">' + label(it) + '</span></div></li>'; }).join('') + '</ul>';
+    h += '<ul class="clean">' + p.items.map(function (it) { return '<li><div class="row sp"><span><span class="xs" style="color:' + TCOL[it.track] + '">' + TICO[it.track] + ' ' + D.TRACKS[it.track].label + '</span><br><b>' + esc(it.ex.n) + '</b></span><span class="mut">' + label(it) + '</span></div></li>'; }).join('') + '</ul>';
     p.skipped.forEach(function (s) { h += '<div class="sm" style="color:var(--warn);margin-top:8px">⚠ ' + esc(s.reason) + '</div>'; });
     p.notes.forEach(function (n) { h += '<div class="sm mut" style="margin-top:6px">• ' + esc(n) + '</div>'; });
     return h + '<button class="btn pri blk" data-act="start">Start workout</button><button class="btn ghost blk" data-act="redo">Redo check-in</button></div>';
@@ -125,7 +149,7 @@
           var lock = e.bar && !S.profile.hasBar, cl = lock ? 'lock' : i === tr.level ? 'cur' : i < tr.level ? 'done' : '';
           h += '<div class="l ' + cl + '" ' + (lock ? '' : 'data-act="setlevel" data-t="' + t + '" data-v="' + i + '"') + '><span>' + (i < tr.level ? '✓' : i === tr.level ? '▶' : lock ? '🔒' : '○') + '</span><span class="grow">' + esc(e.n) + '</span><span class="xs mut">' + e.r[0] + '-' + e.r[1] + (e.t === 'hold' ? 's' : '') + '</span></div>';
         });
-        h += '</div>' + (locked ? '<div class="sm" style="color:var(--warn);margin-top:8px">Needs a pull-up bar (or sturdy pole). Skipped until you have one.</div>' : '<div class="sm mut" style="margin-top:8px"><b>Now:</b> ' + esc(cur.cue) + '</div>' + errList(cur)) + '</details>';
+        h += '</div>' + (locked ? '<div class="sm" style="color:var(--warn);margin-top:8px">Needs a pull-up bar (or sturdy pole). Skipped until you have one.</div>' : '<div class="sm mut" style="margin-top:8px"><b>Now:</b> ' + esc(cur.cue) + '</div>' + howTo(t, tr.level, true) + errList(cur)) + '</details>';
       });
     });
     h += '<div class="card"><h3>How it adapts</h3><ul class="clean sm"><li>Every 4th week is a lighter <b>deload</b> week.</li><li><b>Very sore</b> area: one set fewer and a lighter target.</li><li><b>Sharp pain</b>: that area is skipped. Pain twice in 3 weeks steps you back a level.</li><li><b>Too hard</b> twice in a row: drop back a level and rebuild.</li><li>During a workout, a failed set lowers the next sets automatically.</li><li>Checkpoints can trigger a light week if your joints or recovery are complaining.</li></ul></div>';
@@ -242,6 +266,8 @@
       '<div class="card"><h3>Your data</h3><p class="sm mut">Stored only in this app on this device. Export a backup now and then, because iOS can clear web storage if the app is deleted.</p>' +
       '<button class="btn blk" data-act="export">Export backup (.json)</button><button class="btn ghost blk" data-act="import">Import backup</button><input id="imp" type="file" accept=".json,application/json" hidden>' +
       '<button class="btn ghost blk" data-act="reset" style="color:var(--bad)">Erase everything</button></div>' +
+      '<div class="card"><h3>📲 Install on your phone</h3>' + (deferredInstall ? '<button class="btn pri blk" data-act="install">Install app</button>' : '') +
+      '<div class="sm" style="margin-top:8px"><b>iPhone (Safari):</b> Share button, then <b>Add to Home Screen</b>.</div><div class="sm" style="margin-top:6px"><b>Android (Chrome):</b> menu (three dots), then <b>Install app</b> or <b>Add to Home screen</b>.</div><div class="xs mut" style="margin-top:6px">Same link works on both. Data stays on each device, so use backup export to move between phones.</div></div>' +
       '<div class="card"><h3>Straight talk</h3><p class="sm mut">No app can make a body "immune to anything", and you do not need a detox: your liver, kidneys and gut already do that. What actually builds a resilient, younger-feeling body is progressive strength work, mobility, enough recovery, sleep, protein, lots of plants and consistency over years. Fat loss is best slow (about 0.25-0.75% of body weight a week). This is not medical advice; see a doctor for persistent pain, injuries or health conditions.</p></div>';
   }
 
@@ -272,7 +298,7 @@
         '<div class="card warn sm"><b>Rule of the day:</b> stop a set the moment your form breaks, not when you hit the number. Sharp pain means stop that exercise.</div>' +
         '<details class="card"><summary>🔥 Warm-up (5 min). Do not skip, especially the wrists</summary><ul class="clean">' + D.WARMUP.map(function (x) { return '<li class="row sp"><span>' + x.n + '</span><span class="mut sm">' + x.d + '</span></li>'; }).join('') + '</ul></details>';
       p.items.forEach(function (it, i) {
-        h += '<div class="card"><div class="row sp"><h3>' + esc(it.ex.n) + '</h3><span class="pill">' + label(it) + '</span></div><div class="sm mut" style="margin:6px 0 8px">' + esc(it.ex.cue) + '</div>' + errList(it.ex);
+        h += '<div class="card tk" style="--tc:' + TCOL[it.track] + '"><div class="row sp"><h3>' + TICO[it.track] + ' ' + esc(it.ex.n) + '</h3><span class="pill">' + label(it) + '</span></div><div class="sm mut" style="margin:6px 0 8px">' + esc(it.ex.cue) + '</div>' + howTo(it.track, it.level, true) + errList(it.ex);
         for (var j = 0; j < it.sets; j++) {
           var running = sw && sw.i === i && sw.j === j, v = w.vals[i][j];
           h += '<div class="set"><span class="n">Set ' + (j + 1) + '</span><button class="s" data-act="adj" data-i="' + i + '" data-j="' + j + '" data-d="-1">−</button><span class="v" id="v-' + i + '-' + j + '">' + (running ? '0s' : v + (it.ex.t === 'hold' ? 's' : '')) + '</span><button class="s" data-act="adj" data-i="' + i + '" data-j="' + j + '" data-d="1">+</button>' +
@@ -284,7 +310,7 @@
       h += '<details class="card"><summary>🧊 Cool-down (3 min)</summary><ul class="clean">' + D.COOLDOWN.map(function (x) { return '<li class="row sp"><span>' + x.n + '</span><span class="mut sm">' + x.d + '</span></li>'; }).join('') + '</ul></details>' +
         '<button class="btn pri blk" data-act="finish">Finish workout</button>';
     }
-    $ov.innerHTML = '<div>' + h + '</div>';
+    $ov.innerHTML = '<div>' + h + '</div>'; Fig.mountAll($ov, exByKey);
   }
   function closeOverlay() { $ov.hidden = true; $ov.innerHTML = ''; stopRest(); }
 
@@ -309,7 +335,7 @@
   function render() {
     if (!S) { renderOnboarding(); return; }
     var map = { today: viewToday, plan: viewPlan, meals: viewMeals, progress: viewProgress, settings: viewSettings };
-    var y = window.scrollY; $app.innerHTML = map[view]() + tabbar(); window.scrollTo(0, y);
+    var y = window.scrollY; $app.innerHTML = map[view]() + tabbar(); Fig.mountAll($app, exByKey); window.scrollTo(0, y);
   }
   function go(v) { view = v; render(); window.scrollTo(0, 0); }
 
@@ -362,7 +388,7 @@
     pain: function (el) { W.pain[el.dataset.t] = !W.pain[el.dataset.t]; persist(); renderWorkout(); },
     save: function () {
       var res = W.session.items.map(function (it, i) { return { track: it.track, reps: W.vals[i].map(function (v, j) { return W.done[i][j] ? v : 0; }), diff: W.diff[i], pain: !!W.pain[it.track] }; });
-      W.msgs = E.finishSession(S, W.session, res, today()); W.stage = 'summary'; save(); renderWorkout();
+      W.msgs = E.finishSession(S, W.session, res, today()); W.stage = 'summary'; save(); renderWorkout(); if (W.msgs.some(function (m) { return /^LEVEL UP/.test(m); })) confetti();
     },
     closew: function () { W = null; CP = null; closeOverlay(); render(); },
     mob: function () { mobility(); },
@@ -382,6 +408,7 @@
     },
     setlevel: function (el) { if (!confirm('Set ' + D.TRACKS[el.dataset.t].label + ' to "' + E.exAt(el.dataset.t, +el.dataset.v).n + '"?')) return; var t = S.tracks[el.dataset.t], e = E.exAt(el.dataset.t, +el.dataset.v); t.level = +el.dataset.v; t.target = e.r[0]; t.topHits = 0; t.hardStreak = 0; save(); render(); },
     set: function (el) { var k = el.dataset.k; S.profile[k] = (k === 'hasBar') ? el.dataset.v === '1' : (k === 'days' || k === 'cpEvery') ? +el.dataset.v : el.dataset.v; D.ORDER.forEach(function (t) { S.tracks[t].level = E.clampLevel(t, S.tracks[t].level, S.profile); }); save(); render(); },
+    install: function () { if (!deferredInstall) return; deferredInstall.prompt(); deferredInstall = null; },
     savebody: function () { S.profile.heightCm = num('s-h') || null; S.profile.age = num('s-a') || null; save(); render(); },
     export: function () {
       var blob = new Blob([JSON.stringify(S)], { type: 'application/json' }), name = 'calis-backup-' + today() + '.json';
