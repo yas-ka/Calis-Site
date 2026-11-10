@@ -39,12 +39,12 @@ var Engine = (function () {
     profile.startDate = ymd();
     profile.diet = 'veg'; profile.cpEvery = profile.cpEvery || 14;
     return { v: 3, profile: profile, tracks: tracks, sessions: [], weights: [{ d: ymd(), kg: profile.weightKg }],
-      meals: {}, habits: {}, checkins: [], painLog: [], checkpoints: [], deloadUntil: null, checkin: null, plan: null, draft: null };
+      meals: {}, habits: {}, checkins: [], painLog: [], checkpoints: [], deloadUntil: null, kcalAdjust: 0, seen: {}, toured: false, checkin: null, plan: null, draft: null };
   }
 
   function migrate(s) {
     s.profile.diet = 'veg'; s.profile.cpEvery = s.profile.cpEvery || 14;
-    s.checkpoints = s.checkpoints || []; s.deloadUntil = s.deloadUntil || null;
+    s.checkpoints = s.checkpoints || []; s.deloadUntil = s.deloadUntil || null; s.kcalAdjust = s.kcalAdjust || 0; s.seen = s.seen || {}; if (s.toured === undefined) s.toured = true;
     D.ORDER.forEach(function (t) {
       if (!s.tracks[t]) { var l = clampLevel(t, t === 'hs' ? 0 : 0, s.profile); s.tracks[t] = { level: l, target: exAt(t, l).r[0], topHits: 0, hardStreak: 0 }; }
       var L = levels(t).length; if (s.tracks[t].level >= L) s.tracks[t].level = L - 1;
@@ -53,12 +53,14 @@ var Engine = (function () {
     s.v = 3; s.plan = null; s.draft = null; return s;
   }
 
-  /* Mifflin-St Jeor, ~15% deficit for gradual fat loss; null if profile incomplete */
-  function calorieTarget(s) {
+  /* Mifflin-St Jeor, ~15% deficit for gradual fat loss. Checkpoints nudge it automatically (kcalAdjust);
+     training days get +100, rest days -100. Never below BMR. */
+  function calorieTarget(s, date) {
     var p = s.profile; if (!p.heightCm || !p.age || !p.weightKg || !p.sex) return null;
     var bmr = 10 * p.weightKg + 6.25 * p.heightCm - 5 * p.age + (p.sex === 'm' ? 5 : -161);
-    var tdee = bmr * 1.45, tgt = Math.max(bmr, tdee * 0.85);
-    return Math.round(tgt / 50) * 50;
+    var t = bmr * 1.45 * 0.85 + (s.kcalAdjust || 0);
+    if (date) { var st = status(s, date).k; var trainDay = (st === 'done') || (st === 'train' && !(s.plan && s.plan.date === date && s.plan.rest)); t += trainDay ? 100 : -100; }
+    return Math.round(Math.max(bmr, t) / 50) * 50;
   }
   function kcalEaten(s, date) {
     var rec = s.meals[date]; if (!rec) return 0;
@@ -241,12 +243,15 @@ var Engine = (function () {
     else if (pct <= -0.2) add('good', 'Weight ' + dKg.toFixed(1) + ' kg (' + Math.abs(pct).toFixed(2) + '%/week): a healthy, sustainable fat-loss pace.');
     else if (pct < 0.2) add('good', 'Weight is steady (' + (dKg >= 0 ? '+' : '') + dKg.toFixed(1) + ' kg). Fine if waist and strength are improving (recomposition).');
     else add('watch', 'Weight is up ' + dKg.toFixed(1) + ' kg. If the waist is not shrinking, trim rice/roti/sweet portions a little and keep protein high.');
+    if (prev || span >= 10) {
+      if (pct < -1) { s.kcalAdjust = Math.min(300, (s.kcalAdjust || 0) + 150); add('good', 'Automatic change: I raised your daily calorie target by 150 kcal so you keep your muscle and energy.'); }
+    }
     if (prev && prev.waist && cp.waist) {
       var dw = cp.waist - prev.waist;
       if (dw <= -0.5) add('good', 'Waist ' + dw.toFixed(1) + ' cm: fat is coming off where it matters.');
       else if (dw < 0.5) {
         var flat = pct > -0.2 && pct < 0.2; cp.flatWaist = flat;
-        if (flat && prev.flatWaist) add('bad', 'Waist and weight have not moved across two checkpoints. Trim about 150 kcal/day (smaller rice/roti portions, no sugary drinks) and add a 20-30 minute daily walk.');
+        if (flat && prev.flatWaist) { s.kcalAdjust = Math.max(-300, (s.kcalAdjust || 0) - 150); add('bad', 'Waist and weight have not moved across two checkpoints. Automatic change: I lowered your daily calorie target by 150 kcal (smaller rice/roti portions, no sugary drinks). A 20-30 minute daily walk helps too.'); }
         else add('watch', 'Waist unchanged. Give it one more checkpoint, and keep protein, sleep and daily steps consistent.');
       } else add('watch', 'Waist is up ' + dw.toFixed(1) + ' cm. Check portions, evening snacks and sleep.');
     }
@@ -299,7 +304,32 @@ var Engine = (function () {
     return out;
   }
 
-  return { ymd: ymd, fromYmd: fromYmd, daysBetween: daysBetween, addDays: addDays, weekStart: weekStart,
+  /* ---------- automatic links between features ---------- */
+  /* pre-fill today's check-in from how the last workout went, so the user only fixes exceptions */
+  function suggestSoreness(s, today) {
+    var sor = {}, last = lastSession(s);
+    if (last && last.date !== today && daysBetween(last.date, today) <= 3) {
+      last.ex.forEach(function (e) { var g = D.GROUP[e.track]; if (!g) return; var v = e.pain ? 2 : e.diff === 'hard' ? 1 : 0; if (v > (sor[g] || 0)) sor[g] = v; });
+    }
+    s.painLog.forEach(function (x) { if (daysBetween(x.d, today) <= 3) { var g = D.GROUP[x.track]; if (g && (sor[g] || 0) < 2) sor[g] = 2; } });
+    return sor;
+  }
+  function previewSession(s, today) { return buildSession(s, today, { soreness: {}, energy: 3 }); }
+  function weekStrip(s, today) {
+    var ws = weekStart(today), out = [];
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(ws, i), sess = s.sessions.filter(function (x) { return x.date === d; })[0];
+      out.push({ date: d, label: 'MTWTFSS'.charAt(i), done: sess ? sess.type : null, today: d === today, past: d < today });
+    }
+    return out;
+  }
+  /* what the user needs to do to unlock the next exercise in a track */
+  function goalFor(s, track) {
+    var tr = s.tracks[track], e = exAt(track, tr.level), nl = nextLevel(track, tr.level, s.profile);
+    return { max: e.r[1], target: tr.target, hold: e.t === 'hold', next: nl === null ? null : exAt(track, nl).n, nextLevel: nl, topHits: tr.topHits };
+  }
+
+  return { suggestSoreness: suggestSoreness, previewSession: previewSession, weekStrip: weekStrip, goalFor: goalFor, ymd: ymd, fromYmd: fromYmd, daysBetween: daysBetween, addDays: addDays, weekStart: weekStart,
     levels: levels, exAt: exAt, nextLevel: nextLevel, prevLevel: prevLevel, clampLevel: clampLevel, baselineLevels: baselineLevels,
     newState: newState, weekNumber: weekNumber, isDeload: isDeload, sessionsInWeek: sessionsInWeek, status: status,
     buildSession: buildSession, saveCheckin: saveCheckin, finishSession: finishSession, registerPain: registerPain,
